@@ -64,6 +64,8 @@ function initTrailOptions() {
         textureTileFactorT : 0.8,
         dragTexture : true,
         depthWrite : true,
+        startOpacity : 1.0,
+        endOpacity : 1.0,
         pauseSim : false
     };
 }
@@ -105,6 +107,10 @@ function initGUI() {
     textureOptions.add(options, "textureTileFactorS", 0, 25).name("Texture Tile S").onChange(updateTrailTextureTileSize);
     textureOptions.add(options, "textureTileFactorT", 0, 25).name("Texture Tile T").onChange(updateTrailTextureTileSize);
     textureOptions.add(options, 'dragTexture').name("Drag Texture").onChange(updateTrailTextureDrag);
+
+    const opacityOptions = gui.addFolder("Opacity options");
+    opacityOptions.add(options, "startOpacity", 0.0, 1.0, 0.025).name("Start opacity").onChange(updateTrailOpacity);
+    opacityOptions.add(options, "endOpacity", 0.0, 1.0, 0.025).name("End opacity").onChange(updateTrailOpacity);
 
     gui.domElement.parentNode.style.zIndex = 100;
 }
@@ -263,6 +269,10 @@ function updateTrailTextureTileSize() {
 function updateTrailColors() {
     trailMaterial.uniforms.headColor.value.set(options.headRed, options.headGreen, options.headBlue, options.headAlpha);
     trailMaterial.uniforms.tailColor.value.set(options.tailRed, options.tailGreen, options.tailBlue, options.tailAlpha);
+}
+
+function updateTrailOpacity() {
+    trail.setOpacityRange(options.startOpacity, options.endOpacity);
 }
 
 function updateTrailDepthWrite() {

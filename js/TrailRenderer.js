@@ -30,6 +30,20 @@ export class TrailRenderer extends THREE.Object3D {
         this.lastAdvanceTime = 0;
         this.paused = false;
         this.pauseAdvanceUpdateTimeDiff = 0;
+        this.startOpacity = 1;
+        this.endOpacity = 1;
+        this.opacityNeedsUpdate = false;
+    }
+
+    static clampOpacity(value) {
+        if (!isFinite(value)) return 1;
+        return Math.min(1, Math.max(0, value));
+    }
+
+    setOpacityRange(startOpacity, endOpacity) {
+        this.startOpacity = TrailRenderer.clampOpacity(startOpacity);
+        this.endOpacity = TrailRenderer.clampOpacity(endOpacity);
+        this.opacityNeedsUpdate = true;
     }
 
     setAdvanceFrequency(advanceFrequency) {
@@ -105,6 +119,7 @@ export class TrailRenderer extends THREE.Object3D {
         const positions = new Float32Array(this.vertexCount * TrailRenderer.PositionComponentCount);
         const nodeCenters = new Float32Array(this.vertexCount * TrailRenderer.PositionComponentCount);
         const uvs = new Float32Array(this.vertexCount * TrailRenderer.UVComponentCount);
+        const colors = new Float32Array(this.vertexCount * TrailRenderer.ColorComponentCount);
         const indices = new Uint32Array(this.faceCount * TrailRenderer.IndicesPerFace);
 
         const nodeIDAttribute = new THREE.BufferAttribute(nodeIDs, 1);
@@ -127,6 +142,10 @@ export class TrailRenderer extends THREE.Object3D {
         uvAttribute.dynamic = true;
         geometry.setAttribute('uv', uvAttribute);
 
+        const colorAttribute = new THREE.BufferAttribute(colors, TrailRenderer.ColorComponentCount);
+        colorAttribute.dynamic = true;
+        geometry.setAttribute('color', colorAttribute);
+
         const indexAttribute = new THREE.BufferAttribute(indices, 1);
         indexAttribute.dynamic = true;
         geometry.setIndex(indexAttribute);
@@ -144,6 +163,19 @@ export class TrailRenderer extends THREE.Object3D {
         }
         positions.needsUpdate = true;
         positions.updateRange.count = - 1;
+    }
+
+    zeroColors () {
+        const colors = this.geometry.getAttribute('color');
+        for (let i = 0; i < this.vertexCount; i ++) {
+            const index = i * TrailRenderer.ColorComponentCount;
+            colors.array[ index ] = 0;
+            colors.array[ index + 1 ] = 0;
+            colors.array[ index + 2 ] = 0;
+            colors.array[ index + 3 ] = 0;
+        }
+        colors.needsUpdate = true;
+        colors.updateRange.count = - 1;
     }
 
     zeroIndices () {
@@ -190,7 +222,38 @@ export class TrailRenderer extends THREE.Object3D {
         this.currentNodeID = 0;
         this.formInitialFaces();
         this.zeroVertices();
+        this.zeroColors();
         this.geometry.setDrawRange(0, 0);
+        this.opacityNeedsUpdate = true;
+    }
+
+    updateOpacities () {
+        if (!this.geometry) return;
+        const colors = this.geometry.getAttribute('color');
+        if (!colors) return;
+        const life = this.currentLength;
+        if (life > 0) {
+            const startOpacity = this.startOpacity;
+            const endOpacity = this.endOpacity;
+            for (let nodeIndex = 0; nodeIndex < this.length; nodeIndex ++) {
+                const id = this.nodeIDs[ nodeIndex ];
+                const age = this.currentNodeID - 1 - id;
+                let alpha = 0;
+                if (id >= 0 && age >= 0 && age < life) {
+                    const fraction = Math.min(1, age / life);
+                    alpha = startOpacity + (endOpacity - startOpacity) * fraction;
+                }
+                for (let i = 0; i < this.VerticesPerNode; i ++) {
+                    const baseIndex = (nodeIndex * this.VerticesPerNode + i) * TrailRenderer.ColorComponentCount;
+                    colors.array[ baseIndex ] = 1;
+                    colors.array[ baseIndex + 1 ] = 1;
+                    colors.array[ baseIndex + 2 ] = 1;
+                    colors.array[ baseIndex + 3 ] = alpha;
+                }
+            }
+        }
+        colors.needsUpdate = true;
+        colors.updateRange.count = - 1;
     }
 
     updateUniforms () {
@@ -288,9 +351,14 @@ export class TrailRenderer extends THREE.Object3D {
             if (time - this.lastAdvanceTime > this.advancePeriod) {
                 this.advance();
                 this.lastAdvanceTime = time;
+                this.updateOpacities();
             } else {
                 this.updateHead();
             }
+        }
+        if (this.opacityNeedsUpdate) {
+            this.updateOpacities();
+            this.opacityNeedsUpdate = false;
         }
     }
 
@@ -550,7 +618,7 @@ export class TrailRenderer extends THREE.Object3D {
             vertexShader: vertexShader,
             fragmentShader: fragmentShader,
             transparent: true,
-            alphaTest: 0.5,
+            alphaTest: 0.0,
             blending : THREE.CustomBlending,
             blendSrc : THREE.SrcAlphaFactor,
             blendDst : THREE.OneMinusSrcAlphaFactor,
@@ -594,6 +662,10 @@ export class TrailRenderer extends THREE.Object3D {
         return 2;
     }
 
+    static get ColorComponentCount () {
+        return 4;
+    }
+
     static get IndicesPerFace () {
         return 3;
     }
@@ -609,6 +681,7 @@ export class TrailRenderer extends THREE.Object3D {
                 "attribute float nodeID;",
                 "attribute float nodeVertexID;",
                 "attribute vec3 nodeCenter;",
+                "attribute vec4 color;",
                 "uniform float minID;",
                 "uniform float maxID;",
                 "uniform float trailLength;",
@@ -644,7 +717,7 @@ export class TrailRenderer extends THREE.Object3D {
         get VertexShaderCore() {
             return [
                 "float fraction = (maxID - nodeID) / (maxID - minID);",
-                "vColor = (1.0 - fraction) * headColor + fraction * tailColor;",
+                "vColor = ((1.0 - fraction) * headColor + fraction * tailColor) * color;",
                 "vec4 realPosition = vec4((1.0 - fraction) * position.xyz + fraction * nodeCenter.xyz, 1.0); ", 
             ].join("\n");
         },
